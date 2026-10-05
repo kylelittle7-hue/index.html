@@ -1,0 +1,826 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#0f172a">
+<title>APC Kiawah 2026 · Live</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-database-compat.js"></script>
+<style>
+  :root { --safe-b: env(safe-area-inset-bottom, 0px); }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; overscroll-behavior: none; }
+  .tab-bar { padding-bottom: calc(0.5rem + var(--safe-b)); }
+  .big-btn { min-height: 3.25rem; min-width: 3.25rem; }
+  .score-btn { width: 3.5rem; height: 3.5rem; font-size: 1.75rem; font-weight: 700; }
+  .card { background: #1e293b; border-radius: 1rem; }
+  .net { color: #34d399; font-size: 0.85rem; }
+  .live-dot { width: 8px; height: 8px; border-radius: 50%; background: #34d399; display: inline-block; animation: pulse 1.5s infinite; }
+  .live-dot.off { background: #64748b; animation: none; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+</style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen pb-24">
+
+<!-- CODE GATE -->
+<div id="gate" class="fixed inset-0 z-50 bg-slate-950 flex flex-col items-center justify-center p-6">
+  <div class="text-center mb-8">
+    <div class="text-4xl mb-2">⛳</div>
+    <h1 class="text-2xl font-bold">APC Kiawah 2026</h1>
+    <p class="text-slate-400 mt-1">Live scoring · Boys Golf Trip</p>
+  </div>
+  <input id="codeInput" type="text" placeholder="Enter trip code" maxlength="8"
+    class="w-full max-w-xs text-center text-2xl tracking-widest uppercase bg-slate-800 border border-slate-600 rounded-xl py-4 px-4 outline-none focus:border-emerald-500"
+    autocomplete="off" autocapitalize="characters">
+  <button onclick="tryCode()" class="mt-4 w-full max-w-xs bg-emerald-600 hover:bg-emerald-500 text-white font-semibold py-4 rounded-xl text-lg">
+    Join Trip
+  </button>
+  <p class="text-slate-500 text-sm mt-6">Code is remembered · scores sync live</p>
+</div>
+
+<!-- SETUP BANNER (shown if Firebase not configured) -->
+<div id="setupBanner" class="hidden fixed inset-0 z-50 bg-slate-950/95 flex flex-col items-center justify-center p-6 overflow-y-auto">
+  <div class="max-w-md w-full space-y-4">
+    <h2 class="text-xl font-bold text-center">Enable Live Sync (one-time)</h2>
+    <p class="text-sm text-slate-400 text-center">Free Firebase project · ~3 minutes · no logins for players</p>
+    <ol class="text-sm space-y-3 list-decimal list-inside text-slate-300">
+      <li>Go to <a class="text-sky-400 underline" href="https://console.firebase.google.com" target="_blank">console.firebase.google.com</a></li>
+      <li>Create a project (name it anything, e.g. APC-Kiawah)</li>
+      <li>Click <b>Realtime Database</b> → Create Database → start in <b>test mode</b></li>
+      <li>Open the <b>Rules</b> tab and paste this, then Publish:
+<pre class="bg-slate-900 p-2 rounded text-xs mt-1 overflow-x-auto">{
+  "rules": {
+    ".read": true,
+    ".write": true
+  }
+}</pre>
+      </li>
+      <li>Project settings (gear) → Your apps → Web → register app → copy the <code>firebaseConfig</code> object</li>
+      <li>Paste it below and tap Save</li>
+    </ol>
+    <textarea id="fbConfigInput" rows="8" placeholder='{
+  apiKey: "...",
+  authDomain: "...",
+  databaseURL: "https://....firebaseio.com",
+  projectId: "...",
+  storageBucket: "...",
+  messagingSenderId: "...",
+  appId: "..."
+}' class="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-xs font-mono"></textarea>
+    <button onclick="saveFirebaseConfig()" class="w-full bg-emerald-600 py-3 rounded-xl font-semibold">Save & Go Live</button>
+    <button onclick="skipLive()" class="w-full text-slate-500 text-sm py-2">Use offline only (no sync)</button>
+  </div>
+</div>
+
+<!-- APP -->
+<div id="app" class="hidden">
+  <header class="sticky top-0 z-40 bg-slate-900/95 backdrop-blur border-b border-slate-800 px-4 py-3 flex items-center justify-between">
+    <div>
+      <div class="font-bold text-lg leading-tight flex items-center gap-2">
+        APC Kiawah
+        <span id="liveStatus" class="text-xs font-normal text-slate-400 flex items-center gap-1">
+          <span class="live-dot off" id="liveDot"></span><span id="liveLabel">offline</span>
+        </span>
+      </div>
+      <div class="text-xs text-slate-400">Code: <span id="hdrCode" class="text-emerald-400 font-mono"></span></div>
+    </div>
+    <button onclick="shareTrip()" class="bg-slate-800 text-sm px-3 py-2 rounded-lg border border-slate-700">Share</button>
+  </header>
+
+  <main class="px-3 pt-3">
+    <section id="screen-days" class="space-y-4">
+      <h2 class="text-xl font-bold px-1">Schedule & Meals</h2>
+      <div id="daysList"></div>
+      <div class="card p-4">
+        <h3 class="font-semibold mb-3">🍽️ Dinner Reservations</h3>
+        <div id="mealsList" class="space-y-2 text-sm"></div>
+      </div>
+      <div class="card p-4">
+        <h3 class="font-semibold mb-2">Matchups</h3>
+        <div id="matchupEditor"></div>
+      </div>
+    </section>
+
+    <section id="screen-score" class="hidden space-y-4">
+      <div class="flex gap-2">
+        <select id="roundSelect" onchange="onRoundChange()" class="flex-1 bg-slate-800 border border-slate-700 rounded-xl px-3 py-3 text-sm"></select>
+        <select id="groupSelect" onchange="renderScoreEntry()" class="flex-1 bg-slate-800 border border-slate-700 rounded-xl px-3 py-3 text-sm"></select>
+      </div>
+      <div class="flex items-center justify-between px-1">
+        <button onclick="prevHole()" class="big-btn bg-slate-800 rounded-xl px-4">◀</button>
+        <div class="text-center">
+          <div class="text-3xl font-bold" id="holeNum">1</div>
+          <div class="text-xs text-slate-400" id="holeInfo">Par 4 · HCP 1</div>
+        </div>
+        <button onclick="nextHole()" class="big-btn bg-slate-800 rounded-xl px-4">▶</button>
+      </div>
+      <div id="scoreEntry" class="space-y-3"></div>
+      <button onclick="clearHole()" class="w-full py-3 rounded-xl border border-red-800 text-red-400 text-sm">Clear this hole for group</button>
+    </section>
+
+    <section id="screen-board" class="hidden space-y-4">
+      <div class="flex gap-2">
+        <select id="boardRound" onchange="renderBoard()" class="flex-1 bg-slate-800 border border-slate-700 rounded-xl px-3 py-3 text-sm"></select>
+      </div>
+      <div id="boardContent"></div>
+      <div class="card p-4">
+        <h3 class="font-semibold mb-3">💰 Money Dashboard</h3>
+        <div id="moneyDash" class="overflow-x-auto text-xs"></div>
+      </div>
+      <div class="card p-4">
+        <h3 class="font-semibold mb-3">🏆 Trip Dashboard</h3>
+        <div id="tripDash"></div>
+      </div>
+    </section>
+  </main>
+
+  <nav class="fixed bottom-0 left-0 right-0 bg-slate-900 border-t border-slate-800 tab-bar flex justify-around pt-2 z-40">
+    <button onclick="showScreen('days')" id="tab-days" class="flex-1 flex flex-col items-center py-2 text-emerald-400">
+      <span class="text-xl">📅</span><span class="text-xs mt-0.5">Days</span>
+    </button>
+    <button onclick="showScreen('score')" id="tab-score" class="flex-1 flex flex-col items-center py-2 text-slate-400">
+      <span class="text-xl">✍️</span><span class="text-xs mt-0.5">Score</span>
+    </button>
+    <button onclick="showScreen('board')" id="tab-board" class="flex-1 flex flex-col items-center py-2 text-slate-400">
+      <span class="text-xl">🏆</span><span class="text-xs mt-0.5">Board</span>
+    </button>
+  </nav>
+</div>
+
+<script>
+// ========== FIREBASE CONFIG ==========
+// Paste your config here OR use the setup screen (saved in localStorage)
+let firebaseConfig = null;
+try {
+  const saved = localStorage.getItem('apc26_fb_config');
+  if (saved) firebaseConfig = JSON.parse(saved);
+} catch(e){}
+
+const TRIP_CODE = 'APC26';
+const PLAYERS = [
+  { id:'luke',   name:'Luke',   team:1, hi:10.8 },
+  { id:'dano',   name:'Dano',   team:1, hi:3.3  },
+  { id:'bart',   name:'Bart',   team:1, hi:14.7 },
+  { id:'marco',  name:'Marco',  team:1, hi:14.0 },
+  { id:'little', name:'Little', team:2, hi:2.4  },
+  { id:'julio',  name:'Julio',  team:2, hi:7.5  },
+  { id:'jer',    name:'Jer',    team:2, hi:13.9 },
+  { id:'dylan',  name:'Dylan',  team:2, hi:9.7  }
+];
+const TEAM_NAMES = {1:'No Skins', 2:'Skin Monsters'};
+
+const COURSES = {
+  ocean: {
+    name:'Ocean Course', short:'Ocean',
+    par:[4,5,4,4,3,4,5,3,4,4,5,4,4,3,4,5,3,4],
+    hcp:[15,3,9,1,11,13,7,17,5,16,8,10,2,14,18,4,12,6],
+    tees: {
+      main: { name:'Silver', yards:6356, rating:72.1, slope:140 },
+      bart: { name:'Blue',   yards:6005, rating:70.5, slope:131 }
+    }
+  },
+  turtle: {
+    name:'Turtle Point', short:'Turtle',
+    par:[4,5,4,3,5,4,3,4,4,5,4,4,5,3,4,3,4,4],
+    hcp:[9,5,15,13,7,11,17,1,3,12,6,4,10,16,8,14,18,2],
+    tees: {
+      main: { name:'Silver', yards:6162, rating:70.1, slope:127 },
+      bart: { name:'Blue',   yards:5746, rating:67.3, slope:117 }
+    }
+  },
+  cougar: {
+    name:'Cougar Point', short:'Cougar',
+    par:[4,3,5,4,4,3,4,4,5,4,5,3,4,3,5,4,4,4],
+    hcp:[13,11,17,1,5,9,7,15,3,4,18,8,10,16,14,6,12,2],
+    tees: {
+      main: { name:'Gold',   yards:6205, rating:71.0, slope:133 },
+      bart: { name:'Silver', yards:5806, rating:69.0, slope:127 }
+    }
+  },
+  oak: {
+    name:'Oak Point', short:'Oak',
+    par:[5,3,4,5,4,4,3,5,3,4,3,5,4,4,3,4,5,4],
+    hcp:[7,17,15,5,1,3,11,9,13,10,14,8,2,6,18,12,4,16],
+    tees: {
+      main: { name:'Silver', yards:6110, rating:69.3, slope:130 },
+      bart: { name:'Blue',   yards:5620, rating:67.4, slope:115 }
+    }
+  }
+};
+
+const ROUNDS = [
+  { id:0, date:'Tue Oct 13', course:'ocean',  label:'Day 1 · Ocean',  time:'1:30 / 1:40', format:'2v2' },
+  { id:1, date:'Wed Oct 14', course:'turtle', label:'Day 2 · Turtle', time:'10:20 / 10:30', format:'1v1' },
+  { id:2, date:'Thu Oct 15', course:'cougar', label:'Day 3 · Cougar', time:'11:10 / 11:20', format:'2v2' },
+  { id:3, date:'Fri Oct 16', course:'oak',    label:'Day 4 · Oak',    time:'8:10 / 8:20',  format:'both' }
+];
+
+const MEALS = [
+  { date:'Mon Oct 12', rest:'Jasmine Porch', time:'7:15 PM' },
+  { date:'Tue Oct 13', rest:'Cherrywood BBQ & Ale House', time:'7:00 PM' },
+  { date:'Wed Oct 14', rest:'Jasmine Porch', time:'7:00 PM' },
+  { date:'Thu Oct 15', rest:'Atlantic Room', time:'8:00 PM' }
+];
+
+let matchups = {
+  0: { groups: [
+    { name:'Group A', sideA:['luke','dano'], sideB:['little','julio'] },
+    { name:'Group B', sideA:['bart','marco'], sideB:['jer','dylan'] }
+  ]},
+  1: { groups: [
+    { name:'Match 1', sideA:['luke'], sideB:['little'] },
+    { name:'Match 2', sideA:['dano'], sideB:['julio'] },
+    { name:'Match 3', sideA:['bart'], sideB:['jer'] },
+    { name:'Match 4', sideA:['marco'], sideB:['dylan'] }
+  ]},
+  2: { groups: [
+    { name:'Group A', sideA:['luke','marco'], sideB:['little','jer'] },
+    { name:'Group B', sideA:['dano','bart'], sideB:['julio','dylan'] }
+  ]},
+  3: { groups: [
+    { name:'1v1 A', sideA:['luke'], sideB:['dylan'] },
+    { name:'1v1 B', sideA:['dano'], sideB:['jer'] },
+    { name:'1v1 C', sideA:['bart'], sideB:['little'] },
+    { name:'1v1 D', sideA:['marco'], sideB:['julio'] },
+    { name:'2v2 A', sideA:['luke','dano'], sideB:['little','julio'] },
+    { name:'2v2 B', sideA:['bart','marco'], sideB:['jer','dylan'] }
+  ]}
+};
+
+let state = { scores: {}, currentHole: 1, currentScreen: 'days' };
+let db = null;
+let dbRef = null;
+let live = false;
+let applyingRemote = false;
+
+function $(id){ return document.getElementById(id); }
+
+function setLiveUI(on){
+  live = on;
+  const dot = $('liveDot'), lab = $('liveLabel');
+  if(dot){ dot.classList.toggle('off', !on); }
+  if(lab){ lab.textContent = on ? 'live' : 'offline'; }
+}
+
+function initFirebase(){
+  if(!firebaseConfig || !firebaseConfig.databaseURL){
+    setLiveUI(false);
+    return false;
+  }
+  try {
+    if(!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+    db = firebase.database();
+    dbRef = db.ref('trips/' + TRIP_CODE);
+    dbRef.on('value', snap => {
+      const data = snap.val();
+      if(!data) return;
+      applyingRemote = true;
+      if(data.scores) state.scores = data.scores;
+      if(data.matchups) matchups = data.matchups;
+      applyingRemote = false;
+      if(state.currentScreen === 'score') renderScoreEntry();
+      if(state.currentScreen === 'board') renderBoard();
+      if(state.currentScreen === 'days') renderDays();
+    });
+    setLiveUI(true);
+    return true;
+  } catch(e){
+    console.error(e);
+    setLiveUI(false);
+    return false;
+  }
+}
+
+function pushState(){
+  if(applyingRemote) return;
+  const payload = { scores: state.scores, matchups, updatedAt: Date.now() };
+  if(dbRef){
+    dbRef.update(payload).catch(err => console.warn('sync error', err));
+  } else {
+    try { localStorage.setItem('apc26_'+TRIP_CODE, JSON.stringify(payload)); } catch(e){}
+  }
+}
+
+function loadLocal(){
+  try {
+    const raw = localStorage.getItem('apc26_'+TRIP_CODE);
+    if(raw){
+      const d = JSON.parse(raw);
+      state.scores = d.scores || {};
+      if(d.matchups) matchups = d.matchups;
+    }
+  } catch(e){}
+}
+
+function saveFirebaseConfig(){
+  const raw = $('fbConfigInput').value.trim();
+  if(!raw){ alert('Paste the firebaseConfig object'); return; }
+  try {
+    // Allow raw JS object or JSON
+    let obj;
+    if(raw.startsWith('{')){
+      // try JSON first, then eval-like parse for unquoted keys
+      try { obj = JSON.parse(raw); }
+      catch(_){
+        obj = Function('"use strict"; return (' + raw + ')')();
+      }
+    } else {
+      alert('Paste the full { ... } config object');
+      return;
+    }
+    if(!obj.databaseURL && !obj.databaseURL){
+      // some configs use databaseURL
+    }
+    if(!obj.apiKey){ alert('Config looks incomplete'); return; }
+    // Ensure databaseURL exists
+    if(!obj.databaseURL && obj.projectId){
+      obj.databaseURL = 'https://' + obj.projectId + '-default-rtdb.firebaseio.com';
+    }
+    localStorage.setItem('apc26_fb_config', JSON.stringify(obj));
+    firebaseConfig = obj;
+    $('setupBanner').classList.add('hidden');
+    if(initFirebase()){
+      // seed current local data up
+      pushState();
+    }
+    openApp();
+  } catch(e){
+    alert('Could not parse config: ' + e.message);
+  }
+}
+
+function skipLive(){
+  localStorage.setItem('apc26_skip_live', '1');
+  $('setupBanner').classList.add('hidden');
+  loadLocal();
+  openApp();
+}
+
+function tryCode(){
+  const v = ($('codeInput').value || '').trim().toUpperCase();
+  if(v === TRIP_CODE || v === 'APC26'){
+    localStorage.setItem('apc26_code', TRIP_CODE);
+    afterCodeOk();
+  } else {
+    alert('Wrong code. Try APC26');
+  }
+}
+
+function afterCodeOk(){
+  $('gate').classList.add('hidden');
+  if(firebaseConfig){
+    initFirebase();
+    openApp();
+  } else if(localStorage.getItem('apc26_skip_live')){
+    loadLocal();
+    openApp();
+  } else {
+    $('setupBanner').classList.remove('hidden');
+  }
+}
+
+function openApp(){
+  $('app').classList.remove('hidden');
+  $('hdrCode').textContent = TRIP_CODE;
+  if(!firebaseConfig) loadLocal();
+  initSelects();
+  renderDays();
+  showScreen('days');
+}
+
+function shareTrip(){
+  const url = location.origin + location.pathname + '?c=' + TRIP_CODE;
+  const text = 'APC Kiawah Boys 2026\nCode: ' + TRIP_CODE + '\n' + url;
+  if(navigator.share){
+    navigator.share({ title:'APC Kiawah 2026', text, url }).catch(()=>{});
+  } else {
+    navigator.clipboard.writeText(text).then(()=>alert('Link + code copied!')).catch(()=>prompt('Copy this:', text));
+  }
+}
+
+function courseHandicap(player, courseKey){
+  const c = COURSES[courseKey];
+  const tee = player.id === 'bart' ? c.tees.bart : c.tees.main;
+  const ch = player.hi * (tee.slope / 113) + (tee.rating - 72);
+  return Math.round(ch);
+}
+
+function strokesOnHole(ch, holeHcp){
+  if(ch <= 0) return 0;
+  if(ch <= 18) return holeHcp <= ch ? 1 : 0;
+  const base = Math.floor(ch / 18);
+  const rem = ch % 18;
+  return base + (holeHcp <= rem ? 1 : 0);
+}
+
+function getGross(round, pid, hole){
+  return (state.scores[round] && state.scores[round][pid] && state.scores[round][pid][hole]) || null;
+}
+function setGross(round, pid, hole, val){
+  if(!state.scores[round]) state.scores[round] = {};
+  if(!state.scores[round][pid]) state.scores[round][pid] = {};
+  if(val === null || val === '' || isNaN(val)) delete state.scores[round][pid][hole];
+  else state.scores[round][pid][hole] = parseInt(val,10);
+  pushState();
+}
+function getNet(round, pid, hole){
+  const g = getGross(round, pid, hole);
+  if(g === null) return null;
+  const courseKey = ROUNDS[round].course;
+  const ch = courseHandicap(PLAYERS.find(p=>p.id===pid), courseKey);
+  const hcp = COURSES[courseKey].hcp[hole-1];
+  return g - strokesOnHole(ch, hcp);
+}
+
+function showScreen(name){
+  state.currentScreen = name;
+  ['days','score','board'].forEach(s=>{
+    $('screen-'+s).classList.toggle('hidden', s!==name);
+    $('tab-'+s).classList.toggle('text-emerald-400', s===name);
+    $('tab-'+s).classList.toggle('text-slate-400', s!==name);
+  });
+  if(name==='score') renderScoreEntry();
+  if(name==='board') renderBoard();
+  if(name==='days') renderDays();
+}
+
+function initSelects(){
+  const rs = $('roundSelect');
+  const br = $('boardRound');
+  rs.innerHTML = br.innerHTML = ROUNDS.map(r=>`<option value="${r.id}">${r.label}</option>`).join('');
+  onRoundChange();
+}
+function onRoundChange(){
+  const rid = +$('roundSelect').value;
+  const mu = matchups[rid];
+  const gs = $('groupSelect');
+  gs.innerHTML = mu.groups.map((g,i)=>`<option value="${i}">${g.name}</option>`).join('');
+  renderScoreEntry();
+}
+
+function renderDays(){
+  const el = $('daysList');
+  el.innerHTML = ROUNDS.map(r=>{
+    const c = COURSES[r.course];
+    const teeMain = c.tees.main;
+    const teeBart = c.tees.bart;
+    return `<div class="card p-4">
+      <div class="flex justify-between items-start">
+        <div>
+          <div class="font-bold">${r.date}</div>
+          <div class="text-emerald-400">${c.name}</div>
+          <div class="text-xs text-slate-400 mt-1">Tee times ${r.time}</div>
+          <div class="text-xs text-slate-400">Format: ${r.format==='2v2'?'2 vs 2 Best Ball':r.format==='1v1'?'1 vs 1 Best Ball':'1v1 + 2v2'}</div>
+        </div>
+        <button onclick="toggleCard(this)" class="text-slate-400 text-sm">Scorecard ▾</button>
+      </div>
+      <div class="hidden mt-3 text-xs overflow-x-auto">
+        <div class="mb-1">Main tee: ${teeMain.name} ${teeMain.yards} yd · ${teeMain.rating}/${teeMain.slope}</div>
+        <div class="mb-2">Bart: ${teeBart.name} ${teeBart.yards} yd · ${teeBart.rating}/${teeBart.slope}</div>
+        <table class="w-full text-center">
+          <tr class="text-slate-500"><td>H</td>${c.par.map((_,i)=>`<td>${i+1}</td>`).join('')}</tr>
+          <tr><td class="text-slate-500">Par</td>${c.par.map(p=>`<td>${p}</td>`).join('')}</tr>
+          <tr><td class="text-slate-500">HCP</td>${c.hcp.map(h=>`<td>${h}</td>`).join('')}</tr>
+        </table>
+      </div>
+    </div>`;
+  }).join('');
+
+  $('mealsList').innerHTML = MEALS.map(m=>`
+    <div class="flex justify-between"><span>${m.date}</span><span class="text-slate-300">${m.rest} · ${m.time}</span></div>
+  `).join('');
+
+  const ed = $('matchupEditor');
+  ed.innerHTML = ROUNDS.map(r=>{
+    const mu = matchups[r.id];
+    return `<div class="mb-4">
+      <div class="text-sm font-medium text-emerald-400 mb-1">${r.label}</div>
+      ${mu.groups.map(g=>`
+        <div class="bg-slate-800 rounded-lg p-2 mb-2 text-xs">
+          <div class="font-medium mb-1">${g.name}</div>
+          <div class="flex gap-2 items-center flex-wrap">
+            <span class="text-slate-400">A:</span>
+            ${g.sideA.map(pid=>`<span class="bg-slate-700 px-2 py-0.5 rounded">${PLAYERS.find(p=>p.id===pid).name}</span>`).join('')}
+            <span class="text-slate-500">vs</span>
+            ${g.sideB.map(pid=>`<span class="bg-slate-700 px-2 py-0.5 rounded">${PLAYERS.find(p=>p.id===pid).name}</span>`).join('')}
+          </div>
+        </div>
+      `).join('')}
+    </div>`;
+  }).join('');
+}
+
+function toggleCard(btn){
+  const card = btn.closest('.card').querySelector('.hidden, .block');
+  if(card.classList.contains('hidden')){ card.classList.remove('hidden'); card.classList.add('block'); btn.textContent='Scorecard ▴'; }
+  else { card.classList.add('hidden'); card.classList.remove('block'); btn.textContent='Scorecard ▾'; }
+}
+
+function prevHole(){ state.currentHole = Math.max(1, state.currentHole-1); renderScoreEntry(); }
+function nextHole(){ state.currentHole = Math.min(18, state.currentHole+1); renderScoreEntry(); }
+
+function renderScoreEntry(){
+  const rid = +$('roundSelect').value;
+  const gid = +$('groupSelect').value;
+  const hole = state.currentHole;
+  const courseKey = ROUNDS[rid].course;
+  const c = COURSES[courseKey];
+  $('holeNum').textContent = hole;
+  $('holeInfo').textContent = `Par ${c.par[hole-1]} · Men HCP ${c.hcp[hole-1]}`;
+
+  const group = matchups[rid].groups[gid];
+  const pids = [...group.sideA, ...group.sideB];
+  $('scoreEntry').innerHTML = pids.map(pid=>{
+    const p = PLAYERS.find(x=>x.id===pid);
+    const ch = courseHandicap(p, courseKey);
+    const strokes = strokesOnHole(ch, c.hcp[hole-1]);
+    const gross = getGross(rid, pid, hole);
+    const net = getNet(rid, pid, hole);
+    return `<div class="card p-3 flex items-center gap-3">
+      <div class="flex-1 min-w-0">
+        <div class="font-semibold">${p.name}</div>
+        <div class="text-xs text-slate-400">CH ${ch}${strokes?` · +${strokes} stroke`:''} · ${TEAM_NAMES[p.team]}</div>
+      </div>
+      <button class="score-btn bg-slate-700 rounded-xl" onclick="adjScore(${rid},'${pid}',${hole},-1)">−</button>
+      <div class="w-14 text-center">
+        <div class="text-2xl font-bold">${gross!==null?gross:'–'}</div>
+        <div class="net">${net!==null?'Net '+net:''}</div>
+      </div>
+      <button class="score-btn bg-emerald-700 rounded-xl" onclick="adjScore(${rid},'${pid}',${hole},1)">+</button>
+    </div>`;
+  }).join('');
+}
+
+function adjScore(rid, pid, hole, delta){
+  let g = getGross(rid, pid, hole);
+  if(g===null) g = COURSES[ROUNDS[rid].course].par[hole-1];
+  g = Math.max(1, Math.min(15, g + delta));
+  setGross(rid, pid, hole, g);
+  renderScoreEntry();
+  if(state.currentScreen==='board') renderBoard();
+}
+
+function clearHole(){
+  if(!confirm('Clear all scores on this hole for the current group?')) return;
+  const rid = +$('roundSelect').value;
+  const gid = +$('groupSelect').value;
+  const hole = state.currentHole;
+  const group = matchups[rid].groups[gid];
+  [...group.sideA, ...group.sideB].forEach(pid=>setGross(rid,pid,hole,null));
+  renderScoreEntry();
+}
+
+function bestBallNet(pids, rid, hole){
+  const nets = pids.map(pid=>getNet(rid,pid,hole)).filter(n=>n!==null);
+  if(!nets.length) return null;
+  return Math.min(...nets);
+}
+
+function calcMatch(rid, group){
+  let ptsA=0, ptsB=0;
+  for(let h=1;h<=18;h++){
+    const na = bestBallNet(group.sideA, rid, h);
+    const nb = bestBallNet(group.sideB, rid, h);
+    if(na===null || nb===null) continue;
+    if(na < nb) ptsA+=1;
+    else if(nb < na) ptsB+=1;
+    else { ptsA+=0.5; ptsB+=0.5; }
+  }
+  let bonusA=0, bonusB=0;
+  if(ptsA > ptsB) bonusA=2;
+  else if(ptsB > ptsA) bonusB=2;
+  else { bonusA=1; bonusB=1; }
+  return { ptsA, ptsB, bonusA, bonusB, totalA: ptsA+bonusA, totalB: ptsB+bonusB };
+}
+
+function calcSkins(rid){
+  const winners = {}, status = {}, count = {};
+  PLAYERS.forEach(p => count[p.id] = 0);
+  for (let h = 1; h <= 18; h++) {
+    const nets = PLAYERS.map(p => ({ pid: p.id, net: getNet(rid, p.id, h) })).filter(x => x.net !== null);
+    if (nets.length === 0) { winners[h] = null; status[h] = 'pending'; continue; }
+    const min = Math.min(...nets.map(x => x.net));
+    const mins = nets.filter(x => x.net === min);
+    if (mins.length === 1) {
+      winners[h] = mins[0].pid;
+      count[mins[0].pid]++;
+      status[h] = nets.length < 8 ? 'live' : 'won';
+    } else {
+      winners[h] = null;
+      status[h] = 'tie';
+    }
+  }
+  return { winners, count, status };
+}
+
+function renderBoard(){
+  const rid = +$('boardRound').value;
+  const skins = calcSkins(rid);
+  const mu = matchups[rid];
+  let html = '';
+  let teamPts = {1:0, 2:0};
+  mu.groups.forEach(g=>{
+    const m = calcMatch(rid, g);
+    const aTeam = PLAYERS.find(p=>p.id===g.sideA[0]).team;
+    if(aTeam===1){ teamPts[1]+=m.totalA; teamPts[2]+=m.totalB; }
+    else { teamPts[2]+=m.totalA; teamPts[1]+=m.totalB; }
+  });
+
+  html += `<div class="card p-4 mb-3">
+    <div class="font-semibold mb-2">Match Points (this round)</div>
+    <div class="flex justify-between text-lg">
+      <span>No Skins: <b class="text-emerald-400">${teamPts[1]}</b></span>
+      <span>Skin Monsters: <b class="text-emerald-400">${teamPts[2]}</b></span>
+    </div>
+  </div>`;
+
+  html += `<div class="space-y-2 mb-4">`;
+  mu.groups.forEach((g,gi)=>{
+    const m = calcMatch(rid, g);
+    const aNames = g.sideA.map(id=>PLAYERS.find(p=>p.id===id).name).join('/');
+    const bNames = g.sideB.map(id=>PLAYERS.find(p=>p.id===id).name).join('/');
+    html += `<div class="card p-3 text-sm" onclick="jumpToGroup(${rid},${gi})">
+      <div class="font-medium">${g.name}</div>
+      <div class="flex justify-between mt-1"><span>${aNames}</span><span class="font-mono">${m.ptsA} +${m.bonusA} = ${m.totalA}</span></div>
+      <div class="flex justify-between"><span>${bNames}</span><span class="font-mono">${m.ptsB} +${m.bonusB} = ${m.totalB}</span></div>
+    </div>`;
+  });
+  html += `</div>`;
+
+  const totalSkinsWon = Object.values(skins.count).reduce((a,b)=>a+b,0);
+  html += `<div class="card p-4 mb-4">
+    <div class="font-semibold mb-2">Net Skins (no carry-over · $160 pot)</div>
+    <div class="grid grid-cols-4 gap-1.5 text-xs mb-3">`;
+  PLAYERS.forEach(p=>{
+    html += `<div class="bg-slate-800 rounded-lg p-2 text-center">
+      <div class="truncate">${p.name}</div>
+      <div class="text-xl font-bold text-emerald-400">${skins.count[p.id]}</div>
+    </div>`;
+  });
+  html += `</div>
+    <div class="text-xs text-slate-400 mb-3">${totalSkinsWon} skin${totalSkinsWon===1?'':'s'} awarded · ties = no skin</div>
+    <div class="text-xs font-medium text-slate-300 mb-1">Hole-by-hole</div>
+    <div class="grid grid-cols-6 gap-1 text-[10px]">`;
+  for(let h=1; h<=18; h++){
+    const w = skins.winners[h];
+    const st = skins.status[h];
+    let label = '–', cls = 'bg-slate-800 text-slate-500';
+    if(st === 'won' || st === 'live'){
+      label = PLAYERS.find(p=>p.id===w).name.slice(0,4);
+      cls = st==='live' ? 'bg-amber-900/60 text-amber-300' : 'bg-emerald-900/60 text-emerald-300';
+    } else if(st === 'tie'){ label = 'TIE'; cls = 'bg-slate-700 text-slate-400'; }
+    html += `<div class="${cls} rounded p-1 text-center leading-tight">
+      <div class="opacity-60">${h}</div><div class="font-semibold">${label}</div>
+    </div>`;
+  }
+  html += `</div>
+    <div class="text-[10px] text-slate-500 mt-2">Amber = live · Green = locked</div>
+  </div>`;
+
+  html += `<div class="card p-4 overflow-x-auto">
+    <div class="font-semibold mb-2">Scores (Gross / Net)</div>
+    <table class="w-full text-xs text-center">
+      <tr class="text-slate-500"><td></td>${[...Array(18)].map((_,i)=>`<td>${i+1}</td>`).join('')}<td>Tot</td></tr>`;
+  PLAYERS.forEach(p=>{
+    let gTot=0, nTot=0, cnt=0, cells='';
+    for(let h=1;h<=18;h++){
+      const g=getGross(rid,p.id,h), n=getNet(rid,p.id,h);
+      if(g!==null){ gTot+=g; nTot+=n; cnt++; }
+      cells += `<td>${g!==null?g:''}${n!==null?`<div class="net">${n}</div>`:''}</td>`;
+    }
+    html += `<tr><td class="text-left font-medium pr-1">${p.name}</td>${cells}<td>${cnt?gTot:''}${cnt?`<div class="net">${nTot}</div>`:''}</td></tr>`;
+  });
+  html += `</table></div>`;
+
+  $('boardContent').innerHTML = html;
+  renderMoney();
+  renderTripDash();
+}
+
+function jumpToGroup(rid, gid){
+  $('roundSelect').value = rid;
+  onRoundChange();
+  $('groupSelect').value = gid;
+  showScreen('score');
+}
+
+function renderMoney(){
+  const playerMoney = {};
+  PLAYERS.forEach(p=>playerMoney[p.id]={skins:[0,0,0,0], match:[0,0,0,0], overall:0});
+
+  for(let rid=0;rid<4;rid++){
+    const skins = calcSkins(rid);
+    const awarded = Object.values(skins.count).reduce((a,b)=>a+b,0);
+    const perSkin = awarded ? 160 / awarded : 0;
+    PLAYERS.forEach(p=>{ playerMoney[p.id].skins[rid] = +(skins.count[p.id] * perSkin).toFixed(2); });
+
+    const mu = matchups[rid];
+    let totalMatchPts = 0;
+    const matchResults = mu.groups.map(g=>{
+      const m = calcMatch(rid,g);
+      totalMatchPts += m.totalA + m.totalB;
+      return {g, m};
+    });
+    if(totalMatchPts > 0){
+      matchResults.forEach(({g,m})=>{
+        const shareA = (m.totalA / totalMatchPts) * 200;
+        const shareB = (m.totalB / totalMatchPts) * 200;
+        g.sideA.forEach(pid=>playerMoney[pid].match[rid] += +(shareA/g.sideA.length).toFixed(2));
+        g.sideB.forEach(pid=>playerMoney[pid].match[rid] += +(shareB/g.sideB.length).toFixed(2));
+      });
+    }
+  }
+
+  let teamTotal = {1:0,2:0};
+  for(let rid=0;rid<4;rid++){
+    matchups[rid].groups.forEach(g=>{
+      const m = calcMatch(rid,g);
+      const aTeam = PLAYERS.find(p=>p.id===g.sideA[0]).team;
+      if(aTeam===1){ teamTotal[1]+=m.totalA; teamTotal[2]+=m.totalB; }
+      else { teamTotal[2]+=m.totalA; teamTotal[1]+=m.totalB; }
+    });
+  }
+  if(teamTotal[1] !== teamTotal[2]){
+    const winTeam = teamTotal[1] > teamTotal[2] ? 1 : 2;
+    PLAYERS.filter(p=>p.team===winTeam).forEach(p=>playerMoney[p.id].overall=40);
+  } else {
+    PLAYERS.forEach(p=>playerMoney[p.id].overall=20);
+  }
+
+  let html = `<table class="w-full text-left">
+    <tr class="text-slate-500 border-b border-slate-700">
+      <th class="py-1">Player</th><th>Skins</th><th>Match</th><th>Team</th><th>Total</th><th>P/L</th>
+    </tr>`;
+  let totalPaid=0;
+  PLAYERS.forEach(p=>{
+    const s = playerMoney[p.id].skins.reduce((a,b)=>a+b,0);
+    const m = playerMoney[p.id].match.reduce((a,b)=>a+b,0);
+    const o = playerMoney[p.id].overall;
+    const tot = +(s+m+o).toFixed(2);
+    totalPaid += tot;
+    const pl = +(tot - 200).toFixed(2);
+    html += `<tr class="border-b border-slate-800">
+      <td class="py-1.5 font-medium">${p.name}</td>
+      <td>$${s.toFixed(0)}</td>
+      <td>$${m.toFixed(0)}</td>
+      <td>$${o}</td>
+      <td class="font-semibold">$${tot.toFixed(0)}</td>
+      <td class="${pl>=0?'text-emerald-400':'text-red-400'}">${pl>=0?'+':''}${pl.toFixed(0)}</td>
+    </tr>`;
+  });
+  html += `</table>
+    <div class="mt-3 text-xs text-slate-400 space-y-1">
+      <div>Total collected: $1,600</div>
+      <div>Total paid out: $${totalPaid.toFixed(0)}</div>
+      <div>Difference: $${(1600-totalPaid).toFixed(0)}</div>
+    </div>`;
+  $('moneyDash').innerHTML = html;
+}
+
+function renderTripDash(){
+  let teamPts = {1:[0,0,0,0], 2:[0,0,0,0]};
+  for(let rid=0;rid<4;rid++){
+    matchups[rid].groups.forEach(g=>{
+      const m = calcMatch(rid,g);
+      const aTeam = PLAYERS.find(p=>p.id===g.sideA[0]).team;
+      if(aTeam===1){ teamPts[1][rid]+=m.totalA; teamPts[2][rid]+=m.totalB; }
+      else { teamPts[2][rid]+=m.totalA; teamPts[1][rid]+=m.totalB; }
+    });
+  }
+  const t1 = teamPts[1].reduce((a,b)=>a+b,0);
+  const t2 = teamPts[2].reduce((a,b)=>a+b,0);
+  const winner = t1>t2 ? 'No Skins' : t2>t1 ? 'Skin Monsters' : 'TIE';
+
+  $('tripDash').innerHTML = `
+    <div class="grid grid-cols-2 gap-3 mb-3">
+      <div class="bg-slate-800 rounded-xl p-3 text-center">
+        <div class="text-xs text-slate-400">No Skins</div>
+        <div class="text-2xl font-bold text-emerald-400">${t1}</div>
+        <div class="text-xs mt-1">${teamPts[1].map((v,i)=>`D${i+1}:${v}`).join(' · ')}</div>
+      </div>
+      <div class="bg-slate-800 rounded-xl p-3 text-center">
+        <div class="text-xs text-slate-400">Skin Monsters</div>
+        <div class="text-2xl font-bold text-emerald-400">${t2}</div>
+        <div class="text-xs mt-1">${teamPts[2].map((v,i)=>`D${i+1}:${v}`).join(' · ')}</div>
+      </div>
+    </div>
+    <div class="text-center text-lg font-semibold">Overall: ${winner}</div>
+  `;
+}
+
+(function(){
+  const params = new URLSearchParams(location.search);
+  const q = (params.get('c')||'').toUpperCase();
+  const saved = localStorage.getItem('apc26_code');
+  if(q === TRIP_CODE || saved === TRIP_CODE){
+    afterCodeOk();
+  } else if(q){
+    $('codeInput').value = q;
+  }
+  $('codeInput').addEventListener('keydown', e=>{ if(e.key==='Enter') tryCode(); });
+})();
+</script>
+</body>
+</html>
