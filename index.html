@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#0f172a">
+<title>APC Kiawah 2026 · Live</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-database-compat.js"></script>
+<style>
+  :root { --safe-b: env(safe-area-inset-bottom, 0px); }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; overscroll-behavior: none; }
+  .tab-bar { padding-bottom: calc(0.5rem + var(--safe-b)); }
+  .big-btn { min-height: 3.25rem; min-width: 3.25rem; }
+  .score-btn { width: 3.5rem; height: 3.5rem; font-size: 1.75rem; font-weight: 700; }
+  .card { background: #1e293b; border-radius: 1rem; }
+  .net { color: #34d399; font-size: 0.85rem; }
+  .live-dot { width: 8px; height: 8px; border-radius: 50%; background: #34d399; display: inline-block; animation: pulse 1.5s infinite; }
+  .live-dot.off { background: #64748b; animation: none; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+</style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen pb-24">
+
+<!-- CODE GATE -->
+<div id="gate" class="fixed inset-0 z-50 bg-slate-950 flex flex-col items-center justify-center p-6">
+  <div class="text-center mb-8">
+    <div class="text-4xl mb-2">⛳</div>
+    <h1 class="text-2xl font-bold">APC Kiawah 2026</h1>
+    <p class="text-slate-400 mt-1">Live scoring · Boys Golf Trip</p>
+  </div>
+  <input id="codeInput" type="text" placeholder="Enter trip code" maxlength="8"
+    class="w-full max-w-xs text-center text-2xl tracking-widest uppercase bg-slate-800 border border-slate-600 rounded-xl py-4 px-4 outline-none focus:border-emerald-500"
+    autocomplete="off" autocapitalize="characters">
+  <button onclick="tryCode()" class="mt-4 w-full max-w-xs bg-emerald-600 hover:bg-emerald-500 text-white font-semibold py-4 rounded-xl text-lg">
+    Join Trip
+  </button>
+  <p class="text-slate-500 text-sm mt-6">Code is remembered · scores sync live</p>
+</div>
+
+<!-- PLACEHOLDER - full content pushed in follow-up if truncated -->
+<script>document.write('Loading...'); location.href='index.html.html';</script>
+</body></html>
